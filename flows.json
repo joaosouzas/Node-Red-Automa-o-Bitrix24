@@ -1,0 +1,247 @@
+[
+    {
+        "id": "6e84ccb031587ac1",
+        "type": "tab",
+        "label": "Fluxo 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "8bf32cea9f7b1721",
+        "type": "tab",
+        "label": "Fluxo 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "37f22c7c00e2667c",
+        "type": "http in",
+        "z": "8bf32cea9f7b1721",
+        "name": "Recebe Aviso do Bitrix24",
+        "url": "/UrlDirecionada",
+        "method": "post",
+        "upload": false,
+        "skipBodyParsing": false,
+        "swaggerDoc": "",
+        "x": 190,
+        "y": 300,
+        "wires": [
+            [
+                "d6885b190e3a2c40",
+                "8af9625b84cffd31"
+            ]
+        ]
+    },
+    {
+        "id": "d6885b190e3a2c40",
+        "type": "function",
+        "z": "8bf32cea9f7b1721",
+        "name": "Prepara URL da API",
+        "func": "// Pega o ID do negócio do aviso recebido\nconst dealId = msg.payload.data.FIELDS.ID;\n\n// **COLE AQUI A URL DO SEU WEBHOOK DE ENTRADA DO BITRIX24**\nconst bitrixApiUrl = \"\";\n\n// Monta a URL completa para buscar os detalhes do negócio\nmsg.url = `${bitrixApiUrl}crm.deal.get.json?id=${dealId}`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 300,
+        "wires": [
+            [
+                "7045780b22ea888f"
+            ]
+        ]
+    },
+    {
+        "id": "7045780b22ea888f",
+        "type": "http request",
+        "z": "8bf32cea9f7b1721",
+        "name": "Busca Detalhes do Negócio",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 660,
+        "y": 300,
+        "wires": [
+            [
+                "aa5c20d9b14860f9",
+                "acc697cd8843f0cb"
+            ]
+        ]
+    },
+    {
+        "id": "aa5c20d9b14860f9",
+        "type": "function",
+        "z": "8bf32cea9f7b1721",
+        "name": "Monta Mensagem para o Teams",
+        "func": "// A resposta da API do Bitrix24 com os detalhes do negócio\nconst dealDetails = msg.payload.result;\n\n// =================================================================\n// FILTRO DE PIPELINE\nif (dealDetails.CATEGORY_ID !== '6') {\n    return null; \n}\n// =================================================================\n\n\n// Nossa \"tabela de tradução\" para as etapas\nconst stageMap = {\n    \"C6:NEW\": \"Pré Validação N.O.C\",\n    \"C6:PREPAYMENT_INVOICE\": \"Análise de produto\",\n    \"C6:UC_A6JCP4\": \"Devolução N.O.C\",\n    \"C6:EXECUTING\": \"Roadmap com dev\",\n    \"C6:UC_FGN91R\": \"Aguardando Cliente\",\n    \"C6:FINAL_INVOICE\": \"Teste qualidade\",\n    \"C6:UC_ZHMODE\": \"Melhoria sem prazo\",\n    \"C6:WON\": \"Ativo em produção\",\n    \"C6:LOSE\": \"Negado / não bug\"\n};\n\n// =================================================================\n// LÓGICA DE VERIFICAÇÃO DE PRAZO (PREVISTO vs HOJE)\n// =================================================================\nconst campoDataPrevista = \"UF_CRM_1747419394392\"; \nlet statusPrazo = \"\";\nconst dataPrevistaString = dealDetails[campoDataPrevista];\nlet dataPrevista = null;\n\nif (dataPrevistaString) {\n    dataPrevista = new Date(dataPrevistaString);\n    const hoje = new Date();\n    \n    const dataPrevistaLimpa = new Date(dataPrevista.getFullYear(), dataPrevista.getMonth(), dataPrevista.getDate());\n    const hojeLimpa = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());\n\n    if (dataPrevistaLimpa < hojeLimpa) {\n        statusPrazo = \"🔴 Status do Prazo: Data prevista de entrega - Atrasado\";\n    } else {\n        statusPrazo = \"🟢 Status do Prazo: Data prevista de entrega - No prazo\";\n    }\n}\n\n// =================================================================\n// LÓGICA DE VERIFICAÇÃO DE ENTREGA (REAL vs HOJE)\n// =================================================================\nconst campoDataReal = \"UF_CRM_1714075965155\"; \nlet statusEntrega = \"\";\nconst dataRealString = dealDetails[campoDataReal];\n\nif (dataRealString) {\n    const dataReal = new Date(dataRealString);\n    const hoje = new Date();\n    \n    const dataRealLimpa = new Date(dataReal.getFullYear(), dataReal.getMonth(), dataReal.getDate());\n    const hojeLimpa = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());\n    \n    if (dataRealLimpa < hojeLimpa) {\n        statusEntrega = \"⚠️ Status da Entrega: Data Real - Atrasado\";\n    } else {\n        statusEntrega = \"✅ Status da Entrega: Data Real - No prazo\";\n    }\n}\n// =================================================================\n\n\n// LÓGICA PARA PEGAR A DESCRIÇÃO DO CARD\nlet descricaoCard = dealDetails.COMMENTS;\nif (descricaoCard) {\n    descricaoCard = descricaoCard.replace(/\\[\\/?.*?\\]/g, \"\").trim();\n}\nif (!descricaoCard) {\n    descricaoCard = \"Não há descrição.\";\n}\n\n// =================================================================\n// LÓGICA PARA PEGAR O CAMPO DE ANÁLISE (COM LINK VISÍVEL)\n// =================================================================\nconst campoAnaliseId = \"UF_CRM_1714071798323\";\nlet textoAnalise = dealDetails[campoAnaliseId];\n\nif (textoAnalise) {\n    // Verifica se o texto começa com http para considerá-lo um link\n    if (textoAnalise.startsWith('http')) {\n        // AJUSTE: O texto do link agora é a própria URL\n        textoAnalise = `<a href=\\\"${textoAnalise}\\\">${textoAnalise}</a>`;\n    }\n    // Se não começar com http, o texto original será usado.\n} else {\n    textoAnalise = \"Não preenchido.\";\n}\n// =================================================================\n\n\n// Prepara as variáveis para a mensagem final\nconst dealTitle = dealDetails.TITLE;\nconst dealId = dealDetails.ID;\nconst stageId = dealDetails.STAGE_ID;\nconst stageName = stageMap[stageId] || stageId;\nconst dealLink = `Url/crm/deal/details/${dealId}/`;\n\n// Monta a mensagem final para o Teams\nmsg.payload = {\n    \"text\": `**Negócio atualizado** 🚀<br><br>O card <a href=\\\"${dealLink}\\\">${dealTitle}</a> foi para a etapa **'${stageName}'**.<br><br>${statusPrazo}<br>${statusEntrega}<br><br>**Link para o Card:** ${dealLink}<br><br>---<br><br>**Descrição do Card:**<br>${descricaoCard}<br><br>**Link Movidesk:**<br>${textoAnalise}`\n};\n\n\n// URL do seu webhook do Teams\nmsg.url = \"\";\n\n// Define o cabeçalho correto para a API do Teams\nmsg.headers = {\n    'Content-Type': 'application/json'\n};\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 930,
+        "y": 300,
+        "wires": [
+            [
+                "88c3f85bd2309d88"
+            ]
+        ]
+    },
+    {
+        "id": "88c3f85bd2309d88",
+        "type": "http request",
+        "z": "8bf32cea9f7b1721",
+        "name": "Envia para o Teams",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1170,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8af9625b84cffd31",
+        "type": "http response",
+        "z": "8bf32cea9f7b1721",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 350,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "acc697cd8843f0cb",
+        "type": "debug",
+        "z": "8bf32cea9f7b1721",
+        "name": "Recebe Aviso do Bitrix24",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 830,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "bf39bf164330faec",
+        "type": "inject",
+        "z": "8bf32cea9f7b1721",
+        "name": "Gatilho 1x no dia",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 16 * * 1,2,3,4,5",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 520,
+        "wires": [
+            [
+                "cc4ffbaee4a253ac"
+            ]
+        ]
+    },
+    {
+        "id": "cc4ffbaee4a253ac",
+        "type": "http request",
+        "z": "8bf32cea9f7b1721",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "url//crm.deal.list.json?filter[STAGE_ID]=C6:EXECUTING&select[]=*&select[]=UF_*",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 360,
+        "y": 520,
+        "wires": [
+            [
+                "ff2c6543f129c2dc"
+            ]
+        ]
+    },
+    {
+        "id": "ff2c6543f129c2dc",
+        "type": "function",
+        "z": "8bf32cea9f7b1721",
+        "name": "Função Roadmap",
+        "func": "// A API nos retorna uma lista de negócios (deals)\nconst deals = msg.payload.result;\n\n// Se não retornou nenhum negócio na etapa \"Roadmap\", o fluxo para aqui.\nif (!deals || deals.length === 0) {\n    return null;\n}\n\nconst overdueDeals = [];\n\n// =================================================================\n// CORREÇÃO DA LÓGICA DE DATA (À PROVA DE FUSO HORÁRIO)\n// =================================================================\n// Pega a data de hoje e formata como texto 'YYYY-MM-DD'\nconst hoje = new Date();\nconst hojeTexto = hoje.getFullYear() + '-' + ('0' + (hoje.getMonth() + 1)).slice(-2) + '-' + ('0' + hoje.getDate()).slice(-2);\n\n// ID do seu campo de Data Prevista\nconst campoDataPrevista = \"UF_CRM_1747419394392\";\n\n// Loop que verifica cada negócio da lista\ndeals.forEach(deal => {\n    const dataPrevistaString = deal[campoDataPrevista];\n\n    // Só processa se o card tiver uma data prevista\n    if (dataPrevistaString) {\n        // Pega apenas a parte da data 'YYYY-MM-DD' do texto vindo do Bitrix24\n        const dataPrevistaTexto = dataPrevistaString.substring(0, 10);\n\n        // Compara os textos. Ex: '2025-09-17' < '2025-09-18'\n        // Isso ignora completamente a hora e o fuso horário.\n        if (dataPrevistaTexto < hojeTexto) {\n            overdueDeals.push(deal); // Adiciona o negócio à lista de atrasados\n        }\n    }\n});\n// =================================================================\n\n// Se, depois de verificar todos, não houver nenhum atrasado, o fluxo para aqui.\nif (overdueDeals.length === 0) {\n    return null;\n}\n\n// Se houver cards atrasados, monta uma única mensagem de resumo para o Teams\nlet messageText = \"🚨 **Resumo de Cards Atrasados em Roadmap com Dev** 🚨<br><br>\";\n\noverdueDeals.forEach(deal => {\n    const dealLink = `url/crm/deal/details/${deal.ID}/`;\n    \n    // Formata a data para DD/MM/YYYY a partir do texto, para evitar erros de fuso\n    const dataPrevistaString = deal[campoDataPrevista].substring(0, 10); // Pega 'YYYY-MM-DD'\n    const [ano, mes, dia] = dataPrevistaString.split('-');\n    const dataPrevistaFormatada = `${dia}/${mes}/${ano}`;\n\n    // Adiciona uma linha para cada card atrasado\n    messageText += `• <a href=\\\"${dealLink}\\\">${deal.TITLE}</a> (Prazo: ${dataPrevistaFormatada})<br>`;\n});\n\n// Prepara a mensagem final para envio\nmsg.payload = {\n    \"text\": messageText\n};\n\n// Cole aqui a URL do seu Webhook do Teams\nmsg.url = \"url\";\n\nmsg.headers = {\n    'Content-Type': 'application/json'\n};\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 590,
+        "y": 520,
+        "wires": [
+            [
+                "1c4182ed4fbeb147"
+            ]
+        ]
+    },
+    {
+        "id": "1c4182ed4fbeb147",
+        "type": "http request",
+        "z": "8bf32cea9f7b1721",
+        "name": "",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 800,
+        "y": 520,
+        "wires": [
+            []
+        ]
+    }
+]

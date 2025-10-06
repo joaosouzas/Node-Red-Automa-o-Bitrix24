@@ -1,4 +1,4 @@
-# Node-Red-Automa-o-Bitrix24
+# Node-Red-Automacao-Bitrix24
 Automação com Bitrix para empresas, aonde lê os cards listados nas pipelines e cada atualização envia a informação para o Node-Red e encaminha uma mensagem no Teams. 
 
 Segunda automação com um gatilho do Node-Red, criei uma mensagem para pegar uma etapa especifica da pipeline aonde irá enviar de seg a sex as 16hrs Horário de Brasíla os cards atrasados, baseado no campo de hora do card.
